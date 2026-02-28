@@ -322,53 +322,33 @@ Architecture (535 lines of pure MLX):
 5. Classifier: mean pool → Linear(1280→1024) → Linear(1024→256)
 
 Results: Russian 98.8%, English 99.8%. Benchmark: **265ms MLX (warm) vs 250ms CoreML** (10s audio, M1).
-### Path B: Python MLX MMS-LID-256 (~2-3 days)
+### Path C: Swift MLX — ✅ DONE
 
-1. Subclass `Wav2Vec2Model` → add `Wav2Vec2ForAudioClassification`:
-   ```python
-   class Wav2Vec2ForAudioClassification(nn.Module):
-       def __init__(self, config):
-           self.wav2vec2 = Wav2Vec2Model(config)
-           self.projector = nn.Linear(config.hidden_size, config.classifier_proj_size)
-           self.classifier = nn.Linear(config.classifier_proj_size, config.num_labels)
-   ```
-2. Override `sanitize()` to keep `projector.*` + `classifier.*` weights
-3. Load HF safetensors directly (MMS models already in safetensors format)
-4. Feature extractor: `Wav2Vec2FeatureExtractor(do_normalize=True)` already in mlx-audio
-5. Benchmark vs CoreML
+**Completed Feb 28, 2026.** Pure Swift MLX reimplementation of both models with GPU mel spectrogram and `compile()` graph fusion.
 
-### Path C: Swift MLX (production deployment, ~1 week)
+Files:
+- `Sources/LIDBenchMLX/MmsLid256.swift` — Wav2Vec2 encoder (327 lines)
+- `Sources/LIDBenchMLX/EcapaTdnnLid.swift` — ECAPA-TDNN with GPU mel spectrogram (388 lines)
+- `Sources/LIDBenchMLX/Main.swift` — CLI with inference and benchmark modes (267 lines)
 
-Use Whisper encoder as embedding extractor:
-```swift
-let embeddings = model.encode(mel)  // (1, n_ctx, n_state)
-let pooled = mean(embeddings, axis: 1)  // (1, n_state)
-let logits = classifier(pooled)  // (1, n_languages)
-```
+Key optimizations:
+- `compile()` graph fusion: ECAPA-TDNN 14.8ms (was 28.2ms, 1.9x), MMS-LID-256 268ms (was 354ms, 1.3x)
+- GPU mel spectrogram: `asStrided` + `rfft` + `matmul` on Metal, no CPU↔GPU transfer
 
-Or port ECAPA-TDNN/Wav2Vec2 from Python MLX to Swift MLX using existing Swift Conv1d/BatchNorm patterns.
+Results: ECAPA-TDNN Russian 99.5% (**14.8ms**), MMS-LID-256 Russian 97.3% (268ms). (10s audio, M1).
 
-### Path D: Contribute to mlx-audio (community impact)
+### Path D: Contribute to mlx-audio — STACKED
 
-Issue [#518](https://github.com/Blaizzy/mlx-audio/issues/518) "Add mms-lid" — opened Feb 21, 2026, zero activity, no PR, no maintainer response. Contributing classification head + weights would be first-in-class.
+Issue [#518](https://github.com/Blaizzy/mlx-audio/issues/518) "Add mms-lid" — opened Feb 21, 2026, zero activity. We have the first working MLX-based audio LID. Contributing classification head + weights would be first-in-class. Planned as next step.
 
-## Recommendation
+## Key Risks — Post-Mortem
 
-**Start with Path A (Python MLX ECAPA-TDNN)** — lowest effort, fastest validation:
+All risks from the initial assessment were resolved:
 
-1. Add classification head to existing mlx-audio ECAPA-TDNN
-2. Convert SpeechBrain weights
-3. Run benchmark vs CoreML `.cpuAndGPU`
-4. If MLX is competitive → proceed with Path B (MMS-LID) or Path C (Swift)
-
-This gives us an empirical answer in ~1 day instead of theoretical speculation.
-
-## Key Risks
-
-1. **SpeechBrain → mlx-audio ECAPA-TDNN mismatch**: mlx-audio uses WeSpeaker variant, SpeechBrain has slightly different channel dims and pooling. Need layer-by-layer weight mapping verification.
-2. **Mel spectrogram compatibility**: mlx-audio `dsp.py` has Kaldi-compatible fbank but SpeechBrain uses symmetric triangular filterbank. May need custom mel in MLX (math already known from Swift implementation).
-3. **First-call latency**: MLX compiles Metal shaders on first `mx.eval()`. Could add 1-2s cold start.
-4. **mlx-audio heavy install**: ~500MB (mlx + mlx-lm + librosa + transformers). Could use only the specific modules we need instead.
+1. **SpeechBrain → ECAPA-TDNN mismatch** — Resolved. Custom reimplementation matches SpeechBrain exactly (99.6% Russian, 99.9% English).
+2. **Mel spectrogram compatibility** — Resolved. SpeechBrain-compatible mel (periodic Hamming, symmetric triangular filterbank, 60 mels) implemented in both Python and Swift.
+3. **First-call latency** — Confirmed ~1-2s Metal shader compilation on first `mx.eval()`. Expected behavior, not a blocker.
+4. **mlx-audio heavy install** — Avoided entirely. Zero dependency on mlx-audio — pure MLX reimplementation.
 
 ## References
 
