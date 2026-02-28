@@ -419,7 +419,26 @@ if let bias {
 | ml-explore/mlx | [#2607](https://github.com/ml-explore/mlx/issues/2607) | OPEN — `shapeless matmul isn't` (related) |
 | ml-explore/mlx | No issue filed | `AddMM::output_shapes` specifically untracked |
 
-Tested on mlx-swift 0.30.6 / mlx v0.30.6 (Feb 2026). No fix in any released version.
+Tested on mlx-swift 0.30.6 / mlx v0.30.6 (Feb 2026).
+
+### v0.31.0 Verification (Feb 28, 2026)
+
+**Bug is NOT fixed in mlx v0.31.0.** Verified by examining the release diff, source code, and issue tracker:
+
+| Check | Result |
+|---|---|
+| Issue [#2607](https://github.com/ml-explore/mlx/issues/2607) | Still **OPEN**, no fix merged |
+| Commits v0.30.6→v0.31.0 touching `AddMM` | **0 commits** |
+| `AddMM::output_shapes` in v0.31.0 `primitives.cpp` | **Absent** |
+| `AddMM::output_shapes` in v0.31.0 `primitives.h` | **Absent** — no `DEFINE_INPUT_OUTPUT_SHAPE()` |
+| `Matmul::output_shapes` (for comparison) | Exists (line 2949) |
+| mlx-swift bundling v0.31.0 | **Not released** (still at 0.30.6) |
+
+The only `primitives.cpp` change in v0.31.0 (+22/-5 lines) was `QQMatmul` nvfp4 quantization (PR [#3022](https://github.com/ml-explore/mlx/pull/3022)).
+
+**Interesting discrepancy**: The pre-built XCFramework header (`include-framework/mlx-primitives.h`) declares `AddMM::output_shapes` at line 223, while the bundled C++ source does not implement it. This suggests a fix may exist on `main` branch but hasn't been tagged yet.
+
+v0.31.0 did add `hamming()`, `hanning()`, and `blackman()` window functions (PRs [#3124](https://github.com/ml-explore/mlx/pull/3124), [#3135](https://github.com/ml-explore/mlx/pull/3135), [#3136](https://github.com/ml-explore/mlx/pull/3136)), but these are **symmetric-only** (denominator `M-1`). Our mel spectrogram requires **periodic** windows (denominator `M`), so they are not drop-in replacements. The manual formula remains correct.
 
 ### Workarounds
 
