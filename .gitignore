@@ -1,0 +1,19 @@
+.build/
+.swiftpm/
+convert/.venv/
+convert/__pycache__/
+models/speechbrain_cache/
+
+# CoreML models (download from HuggingFace)
+models/*.mlpackage
+models/*.mlpackage/
+
+# Debug artifacts
+models/*.bin
+models/*.npy
+models/*.onnx
+models/*.onnx.data
+models/*debug*.json
+
+# OS
+.DS_Store
