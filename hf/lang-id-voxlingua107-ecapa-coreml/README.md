@@ -31,18 +31,18 @@ Identifies **107 spoken languages** from log-mel spectrogram. No Python required
 | Size | 81 MB |
 | Precision | FP32 |
 | Min deployment | macOS 14 / iOS 17 |
-| Compute units | CPU + Neural Engine |
+| Compute units | **CPU + GPU** (ANE not used) |
 
 ## Benchmark Results
 
-Tested on Apple Silicon (M1):
+Tested on Apple Silicon (M1, Metal GPU, `.cpuAndGPU`):
 
 | Audio | Predicted | Confidence | Inference Time | Mel Time |
 |-------|-----------|------------|----------------|----------|
-| Russian (10s) | ru: Russian | 99.7% | 0.10s | 0.017s |
-| English (30s) | en: English | 98.6% | 0.21s | 0.062s |
+| Russian (10s) | ru: Russian | 99.7% | 0.017s | 0.019s |
+| English (30s) | en: English | 98.6% | 2.0s | 0.053s |
 
-50-150x faster than MMS-LID-256 with comparable accuracy.
+15-50x faster than MMS-LID-256 with comparable accuracy.
 
 ## Usage (Swift)
 
@@ -51,7 +51,7 @@ import CoreML
 
 let compiledURL = try MLModel.compileModel(at: URL(fileURLWithPath: "EcapaTdnnLid107.mlpackage"))
 let config = MLModelConfiguration()
-config.computeUnits = .all
+config.computeUnits = .cpuAndGPU  // ANE provides no benefit for this model
 let model = try MLModel(contentsOf: compiledURL, configuration: config)
 
 // melFrames: [[Float]] — log-mel spectrogram [T][60]

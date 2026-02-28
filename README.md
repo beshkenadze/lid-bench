@@ -6,21 +6,32 @@ CoreML benchmarks for two spoken language identification models running natively
 
 | Model | HF Repo | Languages | Input | Size | Inference (M1) |
 |-------|---------|-----------|-------|------|-----------------|
-| **MMS-LID-256** | [beshkenadze/mms-lid-256-coreml](https://huggingface.co/beshkenadze/mms-lid-256-coreml) | 256 | Raw waveform 16kHz | 1.8 GB | ~7s (10s audio) |
-| **ECAPA-TDNN** | [beshkenadze/lang-id-voxlingua107-ecapa-coreml](https://huggingface.co/beshkenadze/lang-id-voxlingua107-ecapa-coreml) | 107 | Log-mel spectrogram | 81 MB | ~0.1s (10s audio) |
+| **MMS-LID-256** | [beshkenadze/mms-lid-256-coreml](https://huggingface.co/beshkenadze/mms-lid-256-coreml) | 256 | Raw waveform 16kHz | 1.8 GB | ~0.25s (10s audio) |
+| **ECAPA-TDNN** | [beshkenadze/lang-id-voxlingua107-ecapa-coreml](https://huggingface.co/beshkenadze/lang-id-voxlingua107-ecapa-coreml) | 107 | Log-mel spectrogram | 81 MB | ~0.017s (10s audio) |
 
 Based on [facebook/mms-lid-256](https://huggingface.co/facebook/mms-lid-256) and [speechbrain/lang-id-voxlingua107-ecapa](https://huggingface.co/speechbrain/lang-id-voxlingua107-ecapa).
 
 ## Results
 
-Tested on Apple Silicon (M1, Neural Engine + CPU):
+Tested on Apple Silicon (M1, Metal GPU):
 
 | Model | Russian (10s) | English (30s) |
 |-------|---------------|---------------|
-| MMS-LID-256 | 96.1% | 99.1% |
-| ECAPA-TDNN | 99.7% | 98.6% |
+| MMS-LID-256 | 89.1% (0.75s) | — (4.0s) |
+| ECAPA-TDNN | 99.7% (0.08s) | 98.6% (2.0s) |
 
-ECAPA-TDNN is **50-150x faster** than MMS-LID with comparable or better accuracy.
+### Compute Unit Breakdown (M1, 10s audio, avg of 3-10 runs)
+
+| Compute Units | MMS-LID-256 | ECAPA-TDNN |
+|---|---|---|
+| CPU only | 0.837s | 0.055s |
+| **CPU + GPU** | **0.250s** ✅ | **0.017s** ✅ |
+| All (ANE+GPU+CPU) | 3.286s ❌ | 0.017s |
+
+> **Note:** Neither model benefits from the Neural Engine. MMS-LID-256 is actively 13x slower
+> with ANE enabled due to data transfer overhead between ANE and GPU. Use `.cpuAndGPU`.
+
+ECAPA-TDNN is **15-50x faster** than MMS-LID with comparable or better accuracy.
 
 ## Requirements
 
@@ -87,6 +98,7 @@ python convert_ecapa_tdnn.py
 - Input: raw waveform `[1, N]` at 16kHz (max 30s / 480k samples)
 - CoreML conversion via `torch.jit.trace` → `coremltools`
 - FP16 compute precision
+- **Runs on Metal GPU only** — ANE causes 13x slowdown due to op splitting overhead. Use `.cpuAndGPU`.
 
 ### ECAPA-TDNN VoxLingua107
 
@@ -94,6 +106,7 @@ python convert_ecapa_tdnn.py
 - Input: log-mel spectrogram `[1, T, 60]` computed on-device
 - Mel spectrogram computed in Swift using Accelerate framework (vDSP + BLAS)
 - FP32 compute precision
+- **Runs on Metal GPU** — ANE is not engaged regardless of compute unit setting
 
 #### Mel Spectrogram (SpeechBrain-compatible)
 

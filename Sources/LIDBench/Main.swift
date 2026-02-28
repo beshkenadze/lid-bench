@@ -83,7 +83,7 @@ func runMmsLid(audioPath: String) throws {
     let compileStart = Date()
     let compiledURL = try MLModel.compileModel(at: URL(fileURLWithPath: mlpackagePath))
     let config = MLModelConfiguration()
-    config.computeUnits = .all
+    config.computeUnits = .cpuAndGPU
     let model = try MLModel(contentsOf: compiledURL, configuration: config)
     let compileTime = Date().timeIntervalSince(compileStart)
     print("  Model compiled+loaded in \(String(format: "%.2f", compileTime))s")
@@ -332,7 +332,7 @@ func runEcapaTdnn(audioPath: String) throws {
     let compileStart = Date()
     let compiledURL = try MLModel.compileModel(at: URL(fileURLWithPath: mlpackagePath))
     let config = MLModelConfiguration()
-    config.computeUnits = .all
+    config.computeUnits = .cpuAndGPU
     let model = try MLModel(contentsOf: compiledURL, configuration: config)
     let compileTime = Date().timeIntervalSince(compileStart)
     print("  Model compiled+loaded in \(String(format: "%.2f", compileTime))s")
@@ -408,9 +408,10 @@ struct LIDBench {
     static func main() async throws {
         let args = CommandLine.arguments
         guard args.count >= 2 else {
-            print("Usage: LIDBench <audio-path> [mms|ecapa|all]")
+            print("Usage: LIDBench <audio-path> [mms|ecapa|all|compute-test]")
             print("  audio-path: path to audio file")
             print("  model: mms, ecapa, all (default: all)")
+            print("  compute-test: run compute unit diagnostic")
             Foundation.exit(1)
         }
 
@@ -426,11 +427,15 @@ struct LIDBench {
         print("Audio: \(audioPath)")
 
         do {
-            if modelChoice == "mms" || modelChoice == "all" {
-                try runMmsLid(audioPath: audioPath)
-            }
-            if modelChoice == "ecapa" || modelChoice == "all" {
-                try runEcapaTdnn(audioPath: audioPath)
+            if modelChoice == "compute-test" {
+                try runComputeUnitTest(audioPath: audioPath)
+            } else {
+                if modelChoice == "mms" || modelChoice == "all" {
+                    try runMmsLid(audioPath: audioPath)
+                }
+                if modelChoice == "ecapa" || modelChoice == "all" {
+                    try runEcapaTdnn(audioPath: audioPath)
+                }
             }
         } catch {
             print("\n❌ Error: \(error)")

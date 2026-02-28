@@ -30,16 +30,19 @@ Identifies **256 spoken languages** from raw audio waveform. No Python required 
 | Size | 1.8 GB |
 | Precision | FP16 |
 | Min deployment | macOS 14 / iOS 17 |
-| Compute units | CPU + Neural Engine |
+| Compute units | **CPU + GPU** (ANE causes 13x slowdown) |
 
 ## Benchmark Results
 
-Tested on Apple Silicon (M1):
+Tested on Apple Silicon (M1, Metal GPU, `.cpuAndGPU`):
 
 | Audio | Predicted | Confidence | Inference Time |
 |-------|-----------|------------|----------------|
-| Russian (10s) | rus | 96.1% | ~7s |
-| English (30s) | eng | 99.1% | ~34s |
+| Russian (10s) | rus | 89.1% | ~0.25s |
+| English (30s) | eng | — | ~4.0s |
+
+⚠️ **Do NOT use `.computeUnits = .all`** — ANE causes 13x slowdown (3.3s vs 0.25s for 10s audio)
+due to data transfer overhead between ANE and GPU.
 
 ## Usage (Swift)
 
@@ -48,7 +51,7 @@ import CoreML
 
 let compiledURL = try MLModel.compileModel(at: URL(fileURLWithPath: "MmsLid256.mlpackage"))
 let config = MLModelConfiguration()
-config.computeUnits = .all
+config.computeUnits = .cpuAndGPU  // .all causes 13x slowdown — do NOT use ANE
 let model = try MLModel(contentsOf: compiledURL, configuration: config)
 
 // pcm: [Float] — 16kHz mono audio samples (max 480000 = 30s)
