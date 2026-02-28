@@ -5,6 +5,9 @@ convert/__pycache__/
 models/speechbrain_cache/
 mlx/.venv/
 mlx/__pycache__/
+tests/__pycache__/
+__pycache__/
+*.pyc
 mlx/weights/
 
 # CoreML models (download from HuggingFace)
