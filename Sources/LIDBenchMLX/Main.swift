@@ -121,8 +121,13 @@ func runMmsLid256(audioPath: String, modelsDir: String, doBenchmark: Bool) throw
 
     let waveform = normalizeWaveform(pcm)
 
+    // Compile the forward pass for fused graph execution
+    let compiledForward = compile(inputs: [model], outputs: [model]) { x in
+        model(x)
+    }
+
     print("Running inference...")
-    let logProbs = model(waveform)
+    let logProbs = compiledForward(waveform)
     eval(logProbs)
 
     let results = predict(logProbs: logProbs, labels: labels)
@@ -134,7 +139,7 @@ func runMmsLid256(audioPath: String, modelsDir: String, doBenchmark: Bool) throw
 
     if doBenchmark {
         print("\nBenchmark (10 runs, 3 warmup):")
-        let stats = benchmarkModel({ model(waveform) })
+        let stats = benchmarkModel({ compiledForward(waveform) })
         print("  Mean: \(String(format: "%.1f", stats.meanMs))ms +/- \(String(format: "%.1f", stats.stdMs))ms")
         print("  Min:  \(String(format: "%.1f", stats.minMs))ms")
         print("  Max:  \(String(format: "%.1f", stats.maxMs))ms")
@@ -169,8 +174,13 @@ func runEcapaTdnn(audioPath: String, modelsDir: String, weightsDir: String, doBe
     let (model, labels) = try loadEcapaTdnnLid(weightsPath: weightsPath, labelsPath: labelsPath)
     print("  Loaded \(labels.count) languages")
 
+    // Compile the forward pass for fused graph execution
+    let compiledForward = compile(inputs: [model], outputs: [model]) { x in
+        model(x)
+    }
+
     print("Running inference...")
-    let logProbs = model(mel)
+    let logProbs = compiledForward(mel)
     eval(logProbs)
 
     let results = predict(logProbs: logProbs, labels: labels)
@@ -182,7 +192,7 @@ func runEcapaTdnn(audioPath: String, modelsDir: String, weightsDir: String, doBe
 
     if doBenchmark {
         print("\nBenchmark (10 runs, 3 warmup):")
-        let stats = benchmarkModel({ model(mel) })
+        let stats = benchmarkModel({ compiledForward(mel) })
         print("  Mean: \(String(format: "%.1f", stats.meanMs))ms +/- \(String(format: "%.1f", stats.stdMs))ms")
         print("  Min:  \(String(format: "%.1f", stats.minMs))ms")
         print("  Max:  \(String(format: "%.1f", stats.maxMs))ms")

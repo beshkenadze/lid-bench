@@ -33,19 +33,20 @@ Tested on Apple Silicon (M1, Metal GPU):
 
 | Model | Russian (10s) | English (30s) |
 |-------|---------------|---------------|
-| MMS-LID-256 | 97.3% (0.27s) | 99.7% (0.90s) |
-| ECAPA-TDNN | 99.5% (0.028s) | 99.9% (0.044s) |
+| MMS-LID-256 | 97.3% (0.27s) | 99.7% (0.92s) |
+| ECAPA-TDNN | 99.5% (0.015s) | 99.9% (0.037s) |
 
 ### Three-Way Benchmark (M1, 10s audio)
 
 | Model | Params | CoreML GPU | Python MLX | Swift MLX | Best |
 |---|---|---|---|---|---|
-| ECAPA-TDNN | 20M | 17ms | **16.3ms** | 28.2ms | Python MLX |
-| MMS-LID-256 | 315M | **250ms** | 265ms | 266ms (min) | CoreML |
+| ECAPA-TDNN | 20M | 17ms | 16.3ms | **14.8ms** | Swift MLX |
+| MMS-LID-256 | 315M | **250ms** | 265ms | 268ms | CoreML |
 
 > Both frameworks use Metal GPU. Neither benefits from the Neural Engine.
 > MMS-LID-256 is 13x slower with ANE enabled. Use `.cpuAndGPU`.
 
+> Swift MLX uses `compile()` for graph fusion — eliminates per-call graph build overhead.
 ECAPA-TDNN is **15x faster** than MMS-LID with comparable or better accuracy across all frameworks.
 
 ## Requirements
