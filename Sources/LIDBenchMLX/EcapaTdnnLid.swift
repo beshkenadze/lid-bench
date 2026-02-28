@@ -1,4 +1,3 @@
-import Accelerate
 import Foundation
 import MLX
 import MLXNN
@@ -43,94 +42,44 @@ func speechbrainMelFilterbank(sampleRate: Int, nfft: Int, nMels: Int) -> [[Float
 
 func computeMelSpectrogram(audio: [Float]) -> MLXArray {
     // Periodic Hamming window
-    let window = (0..<kWinLength).map { n -> Float in
+    let windowValues = (0..<kWinLength).map { n -> Float in
         0.54 - 0.46 * cos(2.0 * Float.pi * Float(n) / Float(kWinLength))
     }
+    let window = MLXArray(windowValues)
 
-    // Center-pad
+    // Precompute mel filterbank as MLXArray [nFreqBins, nMels]
+    let melFbRaw = speechbrainMelFilterbank(sampleRate: kSampleRate, nfft: kNfft, nMels: kNMels)
+    let melFbT = MLXArray(melFbRaw.flatMap { $0 }).reshaped(kNMels, kNfft / 2 + 1).transposed()
+
+    // Convert audio to MLXArray and center-pad
     let padLen = kNfft / 2
-    var padded = [Float](repeating: 0, count: padLen + audio.count + padLen)
-    for i in 0..<audio.count { padded[padLen + i] = audio[i] }
+    let audioMLX = MLXArray(audio)
+    let padded = concatenated([MLXArray.zeros([padLen]), audioMLX, MLXArray.zeros([padLen])])
 
-    let numFrames = max(0, (padded.count - kNfft) / kHopLength + 1)
+    let totalLen = padLen + audio.count + padLen
+    let numFrames = max(0, (totalLen - kNfft) / kHopLength + 1)
     if numFrames == 0 { return MLXArray.zeros([1, 0, kNMels]) }
 
-    let nFreqBins = kNfft / 2 + 1
-    let melFb = speechbrainMelFilterbank(sampleRate: kSampleRate, nfft: kNfft, nMels: kNMels)
+    // Frame extraction via asStrided (zero-copy GPU view)
+    let frames = asStrided(padded, [numFrames, kNfft], strides: [kHopLength, 1])
 
-    // DFT twiddle factors
-    var cosTable = [Float](repeating: 0, count: nFreqBins * kNfft)
-    var sinTable = [Float](repeating: 0, count: nFreqBins * kNfft)
-    for k in 0..<nFreqBins {
-        for n in 0..<kNfft {
-            let angle = 2.0 * Float.pi * Float(k) * Float(n) / Float(kNfft)
-            cosTable[k * kNfft + n] = cos(angle)
-            sinTable[k * kNfft + n] = sin(angle)
-        }
-    }
+    // Apply window and compute FFT on GPU
+    let fftResult = rfft(frames * window, n: kNfft, axis: -1)
 
-    var frames = [[Float]]()
-    frames.reserveCapacity(numFrames)
+    // Power spectrum: |FFT|^2
+    let magnitude = abs(fftResult)
+    let powerSpec = magnitude * magnitude
 
-    for frameIdx in 0..<numFrames {
-        let start = frameIdx * kHopLength
-        var windowed = [Float](repeating: 0, count: kNfft)
-        for i in 0..<kNfft where start + i < padded.count {
-            windowed[i] = padded[start + i] * window[i]
-        }
+    // Mel filterbank: [numFrames, nFreqBins] @ [nFreqBins, nMels] -> [numFrames, nMels]
+    let melSpec = matmul(powerSpec, melFbT)
 
-        // DFT via matrix-vector multiply
-        var dftReal = [Float](repeating: 0, count: nFreqBins)
-        var dftImag = [Float](repeating: 0, count: nFreqBins)
-        cosTable.withUnsafeBufferPointer { cosBuf in
-            sinTable.withUnsafeBufferPointer { sinBuf in
-                windowed.withUnsafeBufferPointer { winBuf in
-                    dftReal.withUnsafeMutableBufferPointer { realBuf in
-                        dftImag.withUnsafeMutableBufferPointer { imagBuf in
-                            cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                                        Int32(nFreqBins), Int32(kNfft),
-                                        1.0, cosBuf.baseAddress!, Int32(kNfft),
-                                        winBuf.baseAddress!, 1,
-                                        0.0, realBuf.baseAddress!, 1)
-                            cblas_sgemv(CblasRowMajor, CblasNoTrans,
-                                        Int32(nFreqBins), Int32(kNfft),
-                                        -1.0, sinBuf.baseAddress!, Int32(kNfft),
-                                        winBuf.baseAddress!, 1,
-                                        0.0, imagBuf.baseAddress!, 1)
-                        }
-                    }
-                }
-            }
-        }
+    // Log scale: 10 * log10(max(x, 1e-10))
+    let logMel = 10.0 * log10(maximum(melSpec, MLXArray(Float(1e-10))))
 
-        // Power spectrum → mel → log
-        var melEnergies = [Float](repeating: 0, count: kNMels)
-        for m in 0..<kNMels {
-            var energy: Float = 0
-            for k in 0..<nFreqBins {
-                let power = dftReal[k] * dftReal[k] + dftImag[k] * dftImag[k]
-                energy += melFb[m][k] * power
-            }
-            melEnergies[m] = 10.0 * log10(max(energy, 1e-10))
-        }
-        frames.append(melEnergies)
-    }
+    // top_db=80 clipping
+    let clipped = maximum(logMel, logMel.max() - 80.0)
 
-    // top_db clipping
-    var globalMax: Float = -.infinity
-    for frame in frames {
-        for val in frame { if val > globalMax { globalMax = val } }
-    }
-    let threshold = globalMax - 80.0
-    for i in 0..<frames.count {
-        for j in 0..<frames[i].count {
-            if frames[i][j] < threshold { frames[i][j] = threshold }
-        }
-    }
-
-    // Flatten to MLXArray [1, T, 60]
-    let flat = frames.flatMap { $0 }
-    return MLXArray(flat).reshaped(1, frames.count, kNMels)
+    return clipped.reshaped(1, numFrames, kNMels)
 }
 
 // MARK: - ECAPA-TDNN Model Components

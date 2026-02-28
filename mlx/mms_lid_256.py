@@ -461,13 +461,16 @@ def benchmark(
 ) -> dict:
     waveform = normalize_waveform(audio)
 
+    # Compile for graph fusion (matches Swift MLX compile() usage)
+    compiled_forward = mx.compile(model)
+
     for _ in range(n_warmup):
-        mx.eval(model(waveform))
+        mx.eval(compiled_forward(waveform))
 
     times = []
     for _ in range(n_runs):
         t0 = time.perf_counter()
-        mx.eval(model(waveform))
+        mx.eval(compiled_forward(waveform))
         t1 = time.perf_counter()
         times.append(t1 - t0)
 

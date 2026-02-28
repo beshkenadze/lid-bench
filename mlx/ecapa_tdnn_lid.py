@@ -435,13 +435,16 @@ def benchmark(
 ) -> dict:
     mel = compute_mel_spectrogram(audio)
 
+    # Compile for graph fusion (matches Swift MLX compile() usage)
+    compiled_forward = mx.compile(model)
+
     for _ in range(n_warmup):
-        mx.eval(model(mel))
+        mx.eval(compiled_forward(mel))
 
     times = []
     for _ in range(n_runs):
         t0 = time.perf_counter()
-        mx.eval(model(mel))
+        mx.eval(compiled_forward(mel))
         t1 = time.perf_counter()
         times.append(t1 - t0)
 

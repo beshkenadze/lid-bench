@@ -168,6 +168,7 @@ func runEcapaTdnn(audioPath: String, modelsDir: String, weightsDir: String, doBe
 
     print("Computing mel spectrogram...")
     let mel = computeMelSpectrogram(audio: audio)
+    eval(mel) // Ensure mel is materialized on GPU before benchmarking
     print("  Mel shape: [1, \(mel.dim(1)), \(mel.dim(2))]")
 
     print("Loading model...")

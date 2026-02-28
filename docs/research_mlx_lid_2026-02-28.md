@@ -382,3 +382,64 @@ This gives us an empirical answer in ~1 day instead of theoretical speculation.
 - [arXiv:2510.18921](https://arxiv.org/html/2510.18921v1) — BERT/RoBERTa on MLX
 - [mlx-audio issue #518](https://github.com/Blaizzy/mlx-audio/issues/518) — "Add mms-lid" request (zero activity)
 - [ml-explore/mlx-examples #601](https://github.com/ml-explore/mlx-examples/issues/601) — "Add wav2vec2" request (open)
+
+## Appendix: `shapeless: true` Compilation Crash Investigation
+
+### Problem
+
+Using `compile(inputs: [model], outputs: [model], shapeless: true)` in mlx-swift crashes with:
+```
+AddMM cannot infer output shapes
+```
+
+### Root Cause
+
+`AddMM` primitive in mlx C++ (`primitives.cpp`) has no `output_shapes()` override. The base class throws by default:
+```cpp
+std::vector<Shape> Primitive::output_shapes(const std::vector<array>&) {
+  throw std::invalid_argument(name() + " cannot infer output shapes.");
+}
+```
+
+`Linear` layers **with bias** use `addMM(bias, x, weight.T)` instead of `matmul(x, weight.T)`. `Matmul` has `output_shapes()` implemented; `AddMM` does not.
+
+Source: `MLXNN/Linear.swift#L124-L130`:
+```swift
+if let bias {
+    result = addMM(bias, x, weight.T)   // crashes with shapeless
+} else {
+    result = matmul(x, weight.T)         // works with shapeless
+}
+```
+
+### Issue Tracker
+
+| Repo | Issue | Status |
+|------|-------|--------|
+| ml-explore/mlx | [#2607](https://github.com/ml-explore/mlx/issues/2607) | OPEN — `shapeless matmul isn't` (related) |
+| ml-explore/mlx | No issue filed | `AddMM::output_shapes` specifically untracked |
+
+Tested on mlx-swift 0.30.6 / mlx v0.30.6 (Feb 2026). No fix in any released version.
+
+### Workarounds
+
+1. **Don't use `shapeless: true`** (current approach) — regular `compile()` without `shapeless` works correctly and is the recommended path
+2. **Use `Linear(bias: false)`** — forces `matmul` instead of `addMM`, add bias separately via broadcast-add
+3. **Submit upstream PR** — adding `AddMM::output_shapes()` is trivial (same logic as `Matmul::output_shapes`)
+
+### Verdict
+
+Not actionable for this project. Regular `compile()` already provides 1.9x speedup for ECAPA-TDNN. `shapeless` would only help if input shapes vary (they don't in our use case — fixed mel shape per audio duration).
+
+## Appendix: GPU Mel Spectrogram
+
+Replaced CPU-based mel spectrogram (Accelerate/BLAS `cblas_sgemv`) with pure MLX GPU implementation:
+
+- **Framing**: `asStrided(padded, [numFrames, nfft], strides: [hopLength, 1])` — zero-copy GPU view
+- **FFT**: `rfft(windowed, n: 400, axis: -1)` — handles non-power-of-2 (unlike vDSP)
+- **Power spectrum**: `abs(fft) * abs(fft)` — complex magnitude squared
+- **Mel filterbank**: `matmul(powerSpec, melFbT)` — matrix multiply on GPU
+- **Log + clipping**: `10 * log10(maximum(mel, 1e-10))`, `maximum(logMel, max - 80)`
+
+Eliminates CPU↔GPU data transfer. Entire ECAPA-TDNN pipeline now runs on Metal GPU end-to-end.
+SpeechBrain-compatible: periodic Hamming window, symmetric triangular filterbank, 60 mels, `center=True` padding.
