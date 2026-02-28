@@ -1,6 +1,6 @@
 # LID-Bench: Spoken Language Identification on Apple Silicon
 
-CoreML benchmarks for two spoken language identification models running natively on macOS/iOS via Swift. Zero Python dependencies at runtime.
+CoreML and MLX benchmarks for spoken language identification models on Apple Silicon. Swift CLI for CoreML, Python for MLX. Both use Metal GPU.
 
 ## Models
 
@@ -15,52 +15,68 @@ Based on [facebook/mms-lid-256](https://huggingface.co/facebook/mms-lid-256) and
 
 Tested on Apple Silicon (M1, Metal GPU):
 
+### CoreML (Swift)
+
 | Model | Russian (10s) | English (30s) |
 |-------|---------------|---------------|
-| MMS-LID-256 | 89.1% (0.75s) | — (4.0s) |
-| ECAPA-TDNN | 99.7% (0.08s) | 98.6% (2.0s) |
+| MMS-LID-256 | 89.1% (0.25s) | 99.8% (0.75s) |
+| ECAPA-TDNN | 99.7% (0.017s) | 98.6% (0.05s) |
 
-### Compute Unit Breakdown (M1, 10s audio, avg of 3-10 runs)
+### MLX (Python)
 
-| Compute Units | MMS-LID-256 | ECAPA-TDNN |
-|---|---|---|
-| CPU only | 0.837s | 0.055s |
-| **CPU + GPU** | **0.250s** ✅ | **0.017s** ✅ |
-| All (ANE+GPU+CPU) | 3.286s ❌ | 0.017s |
+| Model | Russian (10s) | English (30s) |
+|-------|---------------|---------------|
+| MMS-LID-256 | 98.8% (0.27s) | 99.8% (0.80s) |
+| ECAPA-TDNN | 99.6% (0.016s) | 99.9% (0.04s) |
 
-> **Note:** Neither model benefits from the Neural Engine. MMS-LID-256 is actively 13x slower
-> with ANE enabled due to data transfer overhead between ANE and GPU. Use `.cpuAndGPU`.
+### CoreML vs MLX Benchmark (M1, 10s audio)
 
-ECAPA-TDNN is **15-50x faster** than MMS-LID with comparable or better accuracy.
+| Model | Params | CoreML GPU | MLX GPU (warm) | Ratio |
+|---|---|---|---|---|
+| ECAPA-TDNN | 20M | 17ms | **16.3ms** | MLX 1.04x faster |
+| MMS-LID-256 | 315M | 250ms | **265ms** | CoreML 1.06x faster |
+
+> Both frameworks use Metal GPU. Neither benefits from the Neural Engine.
+> MMS-LID-256 is 13x slower with ANE enabled. Use `.cpuAndGPU`.
+
+ECAPA-TDNN is **15x faster** than MMS-LID with comparable or better accuracy.
 
 ## Requirements
 
+### CoreML (Swift CLI)
 - macOS 14+ (Sonoma)
 - Xcode 16+ / Swift 6.0
-- No external Swift dependencies
 
+### MLX (Python)
+- macOS 14+ (Apple Silicon)
+- Python 3.12+
+- MLX 0.31+
 ## Quick Start
+
+### CoreML
 
 ```bash
 # Download models from Hugging Face
 hf download beshkenadze/mms-lid-256-coreml --local-dir models/MmsLid256
 hf download beshkenadze/lang-id-voxlingua107-ecapa-coreml --local-dir models/EcapaTdnn
 
-# Build
+# Build & run
 swift build -c release
-
-# Run on audio file (both models)
 .build/release/LIDBench path/to/audio.wav
-
-# Run specific model
-.build/release/LIDBench path/to/audio.wav mms
-.build/release/LIDBench path/to/audio.wav ecapa
 ```
 
-Models are loaded from `./models/` relative to the working directory. Override with:
+### MLX
 
 ```bash
-LID_MODELS_DIR=/path/to/models .build/release/LIDBench audio.wav
+cd mlx
+uv venv && uv pip install mlx numpy soundfile safetensors
+
+# ECAPA-TDNN (107 languages, needs converted weights)
+python ecapa_tdnn_lid.py path/to/audio.wav --benchmark
+
+# MMS-LID-256 (256 languages, loads from HF cache)
+# First: pip install transformers && python -c "from transformers import AutoModel; AutoModel.from_pretrained('facebook/mms-lid-256')"
+python mms_lid_256.py path/to/audio.wav --benchmark
 ```
 
 ## Project Structure
@@ -69,10 +85,17 @@ LID_MODELS_DIR=/path/to/models .build/release/LIDBench audio.wav
 lid-bench/
 ├── Package.swift                    # SPM package (macOS 14+)
 ├── Sources/LIDBench/Main.swift      # Swift CLI (~430 lines)
-└── convert/
-    ├── convert_mms_lid.py           # MMS-LID PyTorch → CoreML
-    ├── convert_ecapa_tdnn.py        # ECAPA-TDNN PyTorch → CoreML
-    └── pyproject.toml               # Python deps for conversion
+├── convert/
+│   ├── convert_mms_lid.py           # MMS-LID PyTorch → CoreML
+│   ├── convert_ecapa_tdnn.py        # ECAPA-TDNN PyTorch → CoreML
+│   └── pyproject.toml               # Python deps for conversion
+├── mlx/
+│   ├── ecapa_tdnn_lid.py            # ECAPA-TDNN in pure MLX (515 lines)
+│   ├── mms_lid_256.py               # MMS-LID-256 in pure MLX (535 lines)
+│   ├── convert_ecapa_weights.py     # SpeechBrain → safetensors converter
+│   └── weights/                     # Converted MLX weights
+└── docs/
+    └── research_mlx_lid_2026-02-28.md  # MLX vs CoreML research report
 ```
 
 ## Model Conversion
